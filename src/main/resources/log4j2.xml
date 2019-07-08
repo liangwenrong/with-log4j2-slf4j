@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- status:指定log4j2自身的日志打印级别 -->
+<!-- monitorInterval:单位秒，指定扫描配置文件改动的时间间隔，最小5 -->
+<Configuration status="WARN" monitorInterval="1800">
+
+    <!-- 设置变量，通过${}可以获取到 -->
+    <Properties>
+        <!-- 配置日志文件输出目录 -->
+        <!--  ${sys:user.home}=C:\Users\user -->
+        <!-- <Property name="LOG_HOME">${sys:user.home}</Property> -->
+        <!-- ${sys:catalina.home}=tomcat根目录 -->
+        <Property name="LOG_HOME">${sys:catalina.home}/logs</Property>
+        <!-- <Property name="LOG_HOME">F:/upload</Property> -->
+        
+        <!-- 
+            %d{yyyy-MM-dd HH:mm:ss, SSS} : 日志生产时间 
+            %p : 日志输出格式 
+            %c : logger的名称 
+            %m : 日志内容，即 logger.info("message") 
+            %n : 换行符 
+            %C : Java类名 
+            %L : 日志输出所在行数 
+            %M : 日志输出所在方法名 
+            hostName : 本地机器名 
+            hostAddress : 本地ip地址 
+            %20 —— 右对齐，不足20个字符则在信息前面用空格补足，超过20个字符则保留原信息
+            %-20 —— 左对齐，不足20个字符则在信息后面用空格补足，超过20个字符则保留原信息
+            %.30 —— 如果信息超过30个字符，则只保留最后30个字符
+            %20.30 —— 右对齐，不足20个字符则在信息前面用空格补足，超过30个字符则只保留最后30个字符
+            %-20.30 —— 左对齐，不足20个字符则在信息后面用空格补足，超过30个字符则只保留最后30个字符
+            -->
+        <property name="defaultPattern">%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %C.%M():%L - %m%n</property>
+    </Properties>
+    
+    <!-- Appenders内部可以配置多个输出位置，可以独立控制日志级别 -->
+	<Appenders>
+	    <!-- 输出到控制台 -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <!-- 只能配置一个Filter -->
+            <!-- 设置日志门槛级别，该级别以上的日志均输出 -->
+            <ThresholdFilter level="debug" onMatch="ACCEPT" onMismatch="DENY" />
+            
+            <!-- 设置日志范围级别，包含在范围中的日志可以输出 -->
+            <!-- minLevel:最小范围允许级别，比如小到error -->
+            <!-- maxLevel:最大范围允许级别，比如大到all -->
+            <!-- <LevelRangeFilter minLevel="warn" maxLevel="info" onMatch="ACCEPT" onMismatch="DENY" /> -->
+            
+            <!-- 输出日志的格式 -->
+            <PatternLayout pattern="${defaultPattern}" />
+        </Console>
+
+		<!-- error以上级别的信息，按天滚动保存 -->
+		<!-- fileName:初始第一个文件的名称 -->
+		<!-- filePattern:文件分割模式，下面是按月分目录，按天和大小分文件 -->
+		<RollingFile name="errorFile" fileName="${LOG_HOME}/error/error.log"
+			filePattern="${LOG_HOME}/error/$${date:yyyy-MM}/error-%d{yyyy-MM-dd}-%i.log">
+            <ThresholdFilter level="error" onMatch="ACCEPT" onMismatch="DENY" />
+            <PatternLayout pattern="${defaultPattern}" />
+			<Policies>
+				<!-- 基于时间的滚动策略，不要其他属性，单纯根据filePattern时间规则滚动 -->
+				<TimeBasedTriggeringPolicy/>
+				<!-- 如果大小达到限制，也会分割文件，文件名i++ -->
+				<SizeBasedTriggeringPolicy size="10 MB"/>
+			</Policies>
+			<!-- 不会自动删除三个月前的error文件，需要再添加 -->
+			<!-- max默认=7:表示%i只能计数到7，更早的将被删除，后面i前移1 -->
+            <DefaultRolloverStrategy max="100"/>
+		</RollingFile>
+		
+		<!-- error以上级别的信息，按天滚动保存，并 -->
+		<!-- fileName:初始第一个文件的名称 -->
+		<!-- filePattern:文件分割模式，下面是按月分目录，按天和大小分文件 -->
+		<RollingFile name="infoFile" fileName="${LOG_HOME}/info/info.log"
+			filePattern="${LOG_HOME}/info/$${date:yyyy-MM}/info-%d{yyyy-MM-dd}-%i.log">
+            <ThresholdFilter level="info" onMatch="ACCEPT" onMismatch="DENY" />
+            <PatternLayout pattern="${defaultPattern}" />
+			<Policies>
+				<!-- 基于时间的滚动策略，根据filePattern时间规则滚动 -->
+				<!-- interval:按多少个最小时间规则滚动 -->
+				<TimeBasedTriggeringPolicy interval="1"/>
+				<!-- 如果大小达到限制，也会分割文件，文件名i++ -->
+				<SizeBasedTriggeringPolicy size="10 MB"/>
+			</Policies>
+			<!-- 配置最大文件数，只保留最近三个月的日志 -->
+			<!-- max="100":%i允许最大计数是保留100个 -->
+			<DefaultRolloverStrategy max="100">
+				<!-- Nested conditions: the inner condition is only evaluated on files 
+					for which the outer conditions are true. -->
+				<!-- maxDepth="0":表示basePath是一个文件，默认=1:表示basePath的目录下 -->
+				<Delete basePath="${LOG_HOME}/info/" maxDepth="2">
+					<IfFileName glob="*/info-*.log"/>
+					<IfLastModified age="90d"/>
+				</Delete>
+			</DefaultRolloverStrategy>
+		</RollingFile>
+	</Appenders>
+
+    <!-- 配置logger，并给他设置Appender -->
+    <Loggers>
+        <!-- 原理：
+            1、Loggers下配置的所有logger，形成父链，如(com.lwr).parent=(com)，(com).parent=root
+            2、一个包路径下的日志默认级别是这里对应路径的级别，如果没有对应，找最近的parent的级别
+            3、假设com.lwr路径的级别是info，不管com和root是error甚至off，这个路径的日志都能递归调用parent的appender
+            4、过程原理：先判断级别合法，调用自己logger的所有appender，然后依次调用parent的所有appender
+            5、不建议非root的logger配置加上appender，避免重复输出
+            -->
+        <!-- 屏蔽spring下的debug信息 -->
+        <logger name="org.springframework" level="info"></logger>
+            
+        <!-- 配置日志的根节点（所有其他logger的父节点），all：自己不做筛选，让各个appender判断 -->
+        <root level="all">
+            <appender-ref ref="Console"/>
+            <appender-ref ref="errorFile"/>
+            <appender-ref ref="infoFile"/>
+        </root>
+    </Loggers>
+</Configuration>
